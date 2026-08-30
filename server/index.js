@@ -85,12 +85,15 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start Server ──────────────────────────────────────────────────────────────
-app.listen(PORT, async () => {
-  console.log(`🚀 [NUTRICRAFT] Server running at http://localhost:${PORT}`);
-  console.log(`🛡️  CORS enabled for: ${CLIENT_URL}`);
-  console.log(`📊 Gemini AI: ${process.env.GEMINI_API_KEY ? '✅ configured' : '⚠️  not configured (add GEMINI_API_KEY to .env)'}`);
-  console.log(`🍎 Nutritionix: ${process.env.NUTRITIONIX_APP_ID ? '✅ configured' : '⚠️  not configured (optional)'}`);
-  await initDb();
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`🚀 [NUTRICRAFT] Server running at http://localhost:${PORT}`);
+    console.log(`🛡️  CORS enabled for: ${CLIENT_URL}`);
+    console.log(`📊 Gemini AI: ${process.env.GEMINI_API_KEY ? '✅ configured' : '⚠️  not configured (add GEMINI_API_KEY to .env)'}`);
+    console.log(`🍎 Nutritionix: ${process.env.NUTRITIONIX_APP_ID ? '✅ configured' : '⚠️  not configured (optional)'}`);
+    await initDb();
+  });
+}
 
 export default app;
+
