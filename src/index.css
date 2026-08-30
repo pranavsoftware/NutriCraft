@@ -1,0 +1,262 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --primary-green: #16a34a;
+    --primary-green-hover: #15803d;
+    --dark-navy: #0B1E29;
+    --dark-navy-light: #162c3b;
+    --bg-light-blue: #eaf3f7;
+    --text-muted: #5c6a6d;
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    color: #1e293b;
+    background-color: #f8fafc;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-serif);
+  }
+}
+
+/* Custom Typography & Palette */
+.font-serif-display {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.bg-navy-dark {
+  background-color: #0B1E29;
+}
+
+.bg-soft-blue {
+  background-color: #eaf3f7;
+}
+
+.text-nutri-green {
+  color: #16a34a;
+}
+
+.bg-nutri-green {
+  background-color: #16a34a;
+}
+
+.bg-nutri-green:hover {
+  background-color: #15803d;
+}
+
+/* Smooth input styling */
+.auth-input {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1px solid #cbd5e1;
+  background-color: #ffffff;
+  font-size: 0.875rem;
+  color: #1e293b;
+  transition: all 0.2s ease;
+  outline: none;
+}
+
+.auth-input:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+}
+
+.auth-input.error {
+  border-color: #ef4444;
+  background-color: #fef2f2;
+}
+
+.auth-input.error:focus {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+/* Auto-advancing OTP single box styling */
+.otp-box {
+  width: 3rem;
+  height: 3.5rem;
+  text-align: center;
+  font-size: 1.5rem;
+  font-weight: 700;
+  border-radius: 0.625rem;
+  border: 2px solid #cbd5e1;
+  background-color: #ffffff;
+  color: #0B1E29;
+  transition: all 0.2s ease;
+}
+
+.otp-box:focus {
+  border-color: #16a34a;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.15);
+  outline: none;
+  transform: translateY(-2px);
+}
+
+/* Skeleton Loaders */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 8px;
+}
+
+/* Chat UI */
+.chat-bubble {
+  max-width: 82%;
+  padding: 14px 18px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  word-break: break-word;
+}
+
+.chat-bubble.user {
+  background: #16a34a;
+  color: #ffffff;
+  border-bottom-right-radius: 4px;
+  margin-left: auto;
+}
+
+.chat-bubble.assistant {
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #e2e8f0;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+  animation: typing-bounce 1.2s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-5px); }
+}
+
+/* Macro Progress Bar */
+.macro-bar-track {
+  height: 7px;
+  border-radius: 99px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.macro-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+}
+
+/* Food Item Cards */
+.food-result-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.food-result-item:hover {
+  background: #f0fdf4;
+  border-color: #86efac;
+}
+
+/* Upload Drop Zone */
+.drop-zone {
+  border: 2px dashed #cbd5e1;
+  border-radius: 20px;
+  background: #f8fafc;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.drop-zone:hover,
+.drop-zone.dragging {
+  border-color: #16a34a;
+  background: #f0fdf4;
+}
+
+/* Page Animation */
+@keyframes pageFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.page-enter {
+  animation: pageFadeIn 0.2s ease forwards;
+}
+
+/* ─── CUTE & SUBTLE BACKGROUND ANIMATIONS ─────────────────────────────────── */
+@keyframes floatSlow {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-14px) rotate(3deg); }
+}
+
+@keyframes floatReverse {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(12px) rotate(-3deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.65; transform: scale(1.08); }
+}
+
+@keyframes spinGentle {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-float-slow {
+  animation: floatSlow 8s ease-in-out infinite;
+}
+
+.animate-float-reverse {
+  animation: floatReverse 9s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 6s ease-in-out infinite;
+}
+
+.animate-spin-gentle {
+  animation: spinGentle 25s linear infinite;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
