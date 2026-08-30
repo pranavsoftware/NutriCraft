@@ -14,6 +14,9 @@
 
 **An evidence-based, AI-powered nutritional intelligence platform combining clinical dietetics with real-time multimodal food recognition, Turso cloud database persistence, and personalized Mifflin-St Jeor metabolic calibration.**
 
+🌐 **Live Application:** [https://nutricraft.raybanpranav.tech/](https://nutricraft.raybanpranav.tech/)  
+🐙 **GitHub Repository:** [https://github.com/pranavsoftware/NutriCraft](https://github.com/pranavsoftware/NutriCraft)
+
 [Key Features](#-key-features) • [System Architecture](#-system-architecture) • [Database Schema](#-database-schema) • [Getting Started](#-getting-started) • [API & Tools](#-api--tools)
 
 ---
