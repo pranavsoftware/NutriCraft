@@ -28,14 +28,14 @@ const generateTokens = (user) => {
 };
 
 /**
- * Set HTTP-Only Cookie for Refresh Token
+ * Set HTTP-Only Cookie for Refresh Token (compatible with cross-origin Vercel -> Render)
  */
 const setRefreshTokenCookie = (res, refreshToken) => {
   const isProduction = process.env.NODE_ENV === 'production';
   res.cookie('refreshToken', refreshToken, {
     httpOnly: true,
     secure: isProduction,
-    sameSite: isProduction ? 'strict' : 'lax',
+    sameSite: isProduction ? 'none' : 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     path: '/',
   });
@@ -339,6 +339,7 @@ export async function login(req, res) {
       success: true,
       message: 'Login successful! Welcome back.',
       accessToken,
+      refreshToken,
       user: {
         id: user.id,
         name: user.name,
@@ -530,6 +531,7 @@ export async function refreshToken(req, res) {
     return res.status(200).json({
       success: true,
       accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
     });
   } catch (error) {
     console.error('[REFRESH TOKEN ERROR]:', error);

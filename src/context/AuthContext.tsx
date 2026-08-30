@@ -136,6 +136,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken(res.data.accessToken);
         setUser(res.data.user);
         localStorage.setItem('nutripro_access_token', res.data.accessToken);
+        if (res.data.refreshToken) {
+          localStorage.setItem('nutripro_refresh_token', res.data.refreshToken);
+        }
         localStorage.setItem('nutripro_user', JSON.stringify(res.data.user));
         return {
           success: true,
@@ -194,6 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setToken(null);
       localStorage.removeItem('nutripro_access_token');
+      localStorage.removeItem('nutripro_refresh_token');
       localStorage.removeItem('nutripro_user');
     }
   };

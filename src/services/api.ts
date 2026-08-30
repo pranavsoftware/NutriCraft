@@ -1,8 +1,17 @@
 import axios from 'axios';
 
+// Resolve base URL for local development or Vercel frontend connected to Render backend
+const getBaseUrl = () => {
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (!envUrl) return '/api';
+  return envUrl.endsWith('/api') ? envUrl : `${envUrl.replace(/\/$/, '')}/api`;
+};
+
+export const API_BASE_URL = getBaseUrl();
+
 const api = axios.create({
-  baseURL: '/api',
-  withCredentials: true, // Send httpOnly cookies (for refresh token)
+  baseURL: API_BASE_URL,
+  withCredentials: true, // Send httpOnly cookies
   headers: {
     'Content-Type': 'application/json',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -40,20 +49,25 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
+        const storedRefreshToken = localStorage.getItem('nutripro_refresh_token');
         const response = await axios.post(
-          '/api/auth/refresh-token',
-          {},
+          `${API_BASE_URL}/auth/refresh-token`,
+          { refreshToken: storedRefreshToken },
           { withCredentials: true }
         );
 
         if (response.data.success && response.data.accessToken) {
           const newToken = response.data.accessToken;
           localStorage.setItem('nutripro_access_token', newToken);
+          if (response.data.refreshToken) {
+            localStorage.setItem('nutripro_refresh_token', response.data.refreshToken);
+          }
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return api(originalRequest);
         }
       } catch (refreshError) {
         localStorage.removeItem('nutripro_access_token');
+        localStorage.removeItem('nutripro_refresh_token');
         localStorage.removeItem('nutripro_user');
         window.dispatchEvent(new Event('auth:logout'));
         return Promise.reject(refreshError);
