@@ -154,6 +154,23 @@ export default function ProfilePage() {
 
   // Real-time live calculation of Mifflin-St Jeor values
   const liveCalculation = useMemo(() => {
+    const hasMeasurements = Boolean(profile.age && profile.height_cm && profile.weight_kg);
+
+    if (!hasMeasurements && !hasExistingProfile) {
+      return {
+        hasInputs: false,
+        bmr: '--',
+        tdee: '--',
+        calories: '--',
+        protein: '--',
+        carbs: '--',
+        fat: '--',
+        bmi: null,
+        bmiCategory: 'Pending Input',
+        bmiColor: 'text-slate-400 bg-white/5 border-white/10',
+      };
+    }
+
     const a = Number(profile.age) || 25;
     const h = Number(profile.height_cm) || 170;
     const w = Number(profile.weight_kg) || 70;
@@ -213,6 +230,7 @@ export default function ProfilePage() {
     }
 
     return {
+      hasInputs: true,
       bmr: Math.round(bmr),
       tdee,
       calories,
@@ -223,7 +241,7 @@ export default function ProfilePage() {
       bmiCategory,
       bmiColor,
     };
-  }, [profile.age, profile.height_cm, profile.weight_kg, profile.gender, profile.activity_level, profile.goal]);
+  }, [profile.age, profile.height_cm, profile.weight_kg, profile.gender, profile.activity_level, profile.goal, hasExistingProfile]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -360,21 +378,28 @@ export default function ProfilePage() {
           </div>
 
           {/* Live BMR & TDEE Badges */}
-          <div className="flex items-center gap-3 bg-white/5 p-2.5 rounded-2xl border border-white/10 shrink-0 self-start sm:self-auto">
-            <div className="text-right px-2">
-              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Basal Rate (BMR)</div>
-              <div className="text-sm font-extrabold text-slate-200">
-                {liveCalculation.bmr} <span className="text-[10px] font-normal text-slate-400">kcal</span>
+          {liveCalculation.hasInputs ? (
+            <div className="flex items-center gap-3 bg-white/5 p-2.5 rounded-2xl border border-white/10 shrink-0 self-start sm:self-auto">
+              <div className="text-right px-2">
+                <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Basal Rate (BMR)</div>
+                <div className="text-sm font-extrabold text-slate-200">
+                  {liveCalculation.bmr} <span className="text-[10px] font-normal text-slate-400">kcal</span>
+                </div>
+              </div>
+              <div className="w-px h-7 bg-white/10" />
+              <div className="text-left px-2">
+                <div className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Total TDEE</div>
+                <div className="text-sm font-extrabold text-emerald-300">
+                  {liveCalculation.tdee} <span className="text-[10px] font-normal text-slate-400">kcal</span>
+                </div>
               </div>
             </div>
-            <div className="w-px h-7 bg-white/10" />
-            <div className="text-left px-2">
-              <div className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Total TDEE</div>
-              <div className="text-sm font-extrabold text-emerald-300">
-                {liveCalculation.tdee} <span className="text-[10px] font-normal text-slate-400">kcal</span>
-              </div>
+          ) : (
+            <div className="flex items-center gap-2 bg-amber-500/10 px-3.5 py-2 rounded-2xl border border-amber-500/25 text-xs text-amber-300 self-start sm:self-auto">
+              <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
+              <span className="font-semibold">Awaiting Age, Height & Weight</span>
             </div>
-          </div>
+          )}
         </div>
 
         {/* 4 Live Metric Tiles */}
@@ -383,17 +408,21 @@ export default function ProfilePage() {
           <div className="p-4 rounded-2xl bg-white/5 border border-white/10 hover:border-amber-500/40 transition-all group">
             <div className="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-slate-400 mb-1.5">
               <span className="flex items-center gap-1 text-amber-400">
-                <Flame size={14} className="animate-pulse" /> Calories
+                <Flame size={14} className={liveCalculation.hasInputs ? 'animate-pulse' : ''} /> Calories
               </span>
               <span className="text-[10px] font-normal text-slate-400 lowercase">target</span>
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {liveCalculation.calories}
-              <span className="text-xs font-normal text-slate-400 ml-1">kcal</span>
+              {liveCalculation.hasInputs && <span className="text-xs font-normal text-slate-400 ml-1">kcal</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-              <span>{profile.goal === 'lose_weight' ? '-400 kcal deficit' : profile.goal === 'gain_muscle' ? '+300 kcal surplus' : 'equilibrium'}</span>
+              <span>
+                {liveCalculation.hasInputs 
+                  ? (profile.goal === 'lose_weight' ? '-400 kcal deficit' : profile.goal === 'gain_muscle' ? '+300 kcal surplus' : 'equilibrium')
+                  : 'Enter biometrics'}
+              </span>
             </div>
           </div>
 
@@ -409,10 +438,10 @@ export default function ProfilePage() {
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {liveCalculation.protein}
-              <span className="text-xs font-normal text-slate-400 ml-1">g</span>
+              {liveCalculation.hasInputs && <span className="text-xs font-normal text-slate-400 ml-1">g</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              Muscle retention & repair
+              {liveCalculation.hasInputs ? 'Muscle retention & repair' : 'Pending input'}
             </div>
           </div>
 
@@ -428,10 +457,10 @@ export default function ProfilePage() {
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {liveCalculation.carbs}
-              <span className="text-xs font-normal text-slate-400 ml-1">g</span>
+              {liveCalculation.hasInputs && <span className="text-xs font-normal text-slate-400 ml-1">g</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              Energy & brain glycogen
+              {liveCalculation.hasInputs ? 'Energy & brain glycogen' : 'Pending input'}
             </div>
           </div>
 
@@ -447,10 +476,10 @@ export default function ProfilePage() {
             </div>
             <div className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
               {liveCalculation.fat}
-              <span className="text-xs font-normal text-slate-400 ml-1">g</span>
+              {liveCalculation.hasInputs && <span className="text-xs font-normal text-slate-400 ml-1">g</span>}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              Hormone & cell vitality
+              {liveCalculation.hasInputs ? 'Hormone & cell vitality' : 'Pending input'}
             </div>
           </div>
         </div>
@@ -462,10 +491,14 @@ export default function ProfilePage() {
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
               <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
             </span>
-            <span>Live Interactive Preview • Values dynamically recalculate as you adjust parameters below.</span>
+            <span>
+              {liveCalculation.hasInputs
+                ? 'Live Interactive Preview • Values dynamically recalculate as you adjust parameters below.'
+                : 'Enter your Age, Height, and Weight in Section 1 below to calibrate your targets in real-time.'}
+            </span>
           </div>
 
-          {profile.height_cm && profile.weight_kg && (
+          {profile.height_cm && profile.weight_kg && liveCalculation.bmi && (
             <div className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${liveCalculation.bmiColor}`}>
               BMI {liveCalculation.bmi} • {liveCalculation.bmiCategory}
             </div>
