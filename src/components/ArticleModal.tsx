@@ -62,7 +62,14 @@ export default function ArticleModal({
         {/* Body Content */}
         <div className="p-6 sm:p-8 overflow-y-auto space-y-6">
           <div className="rounded-2xl overflow-hidden max-h-64 shadow-md">
-            <img src={article.image} alt={article.title} className="w-full h-full object-cover" />
+            <img 
+              src={article.image} 
+              alt={article.title} 
+              onError={(e) => {
+                e.currentTarget.src = 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?q=80&w=800&auto=format&fit=crop';
+              }}
+              className="w-full h-full object-cover" 
+            />
           </div>
 
           <div>

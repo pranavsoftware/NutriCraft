@@ -32,7 +32,7 @@ const ARTICLES: ArticleData[] = [
     title: "Healthy Daily Life: Defeating the Afternoon Energy Slump",
     category: "Daily Habits & Meal Prep",
     readTime: "3 min read",
-    image: "https://images.unsplash.com/photo-1498837167333-2f14ac1cb38b?q=80&w=800&auto=format&fit=crop",
+    image: "https://images.unsplash.com/photo-1547592180-85f173990554?q=80&w=800&auto=format&fit=crop",
     intro: "Why do most high-achievers crash at 3:00 PM? Learn the science of circadian nutrient distribution and practical batch preparation routines that keep energy steady all day long.",
     sections: [
       {
@@ -95,6 +95,9 @@ export default function FeatureCards() {
                 <img 
                   src={article.image} 
                   alt={article.title} 
+                  onError={(e) => {
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1498837167922-ddd27525d352?q=80&w=800&auto=format&fit=crop';
+                  }}
                   className="w-full h-full object-cover rounded-2xl transition-transform duration-500 group-hover:scale-105"
                 />
                 <span className="absolute top-7 left-7 px-3 py-1 rounded-full bg-white/90 backdrop-blur-md text-[11px] font-bold text-slate-800 shadow-xs">
