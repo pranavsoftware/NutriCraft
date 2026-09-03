@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="nutriGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="50%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#047857"/>
+    </linearGradient>
+    <linearGradient id="leafHighlight" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#ECFDF5" stop-opacity="0.85"/>
+    </linearGradient>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#064E3B" flood-opacity="0.25"/>
+    </filter>
+  </defs>
+
+  <!-- Squircle Background -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#nutriGrad)"/>
+  <rect x="2" y="2" width="60" height="60" rx="16" stroke="#34D399" stroke-width="1.5" stroke-opacity="0.4"/>
+
+  <!-- Stylized NutriCraft Botanical Leaf -->
+  <g filter="url(#softGlow)">
+    <!-- Leaf Body -->
+    <path d="M47 17C33 17 21 25 19 39C25 41 33 39 39 33C45 27 47 17 47 17Z" 
+          fill="url(#leafHighlight)"/>
+    <!-- Leaf Base Curve -->
+    <path d="M19 39C17 43 18 47 21 47C25 47 31 43 39 33" 
+          stroke="url(#leafHighlight)" stroke-width="2.5" stroke-linecap="round"/>
+    <!-- Stem / Central Vein -->
+    <path d="M17 47C22 42 31 34 43 21" 
+          stroke="#059669" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Sub-vein Accent -->
+    <path d="M28 36C32 37 36 35 38 33" 
+          stroke="#059669" stroke-width="1.8" stroke-linecap="round" stroke-opacity="0.8"/>
+  </g>
+</svg>

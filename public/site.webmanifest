@@ -1,0 +1,17 @@
+{
+  "name": "NutriCraft - Personalized Nutrition & Wellness",
+  "short_name": "NutriCraft",
+  "description": "Personalized clinical nutrition solutions, Mifflin-St Jeor metabolic tracking, and AI-powered food intelligence.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B1E29",
+  "theme_color": "#0B1E29",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
