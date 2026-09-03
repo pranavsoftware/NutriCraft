@@ -10,6 +10,8 @@ import {
   refreshToken,
   logout,
   getMe,
+  googleSignIn,
+  firebaseSync,
 } from '../controllers/authController.js';
 import { authenticateToken } from '../middleware/auth.js';
 
@@ -18,7 +20,7 @@ const router = express.Router();
 // Rate limiting for sensitive authentication endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 30, // Limit each IP to 30 requests per window
+  max: 60, // Limit each IP
   standardHeaders: true,
   legacyHeaders: false,
   message: {
@@ -40,11 +42,13 @@ const otpLimiter = rateLimit({
 
 // Authentication Routes
 router.post('/signup', authLimiter, signup);
-router.post('/verify-otp', otpLimiter, verifyOtp);
-router.post('/resend-otp', otpLimiter, resendOtp);
 router.post('/login', authLimiter, login);
+router.post('/google', authLimiter, googleSignIn);
+router.post('/firebase-sync', authLimiter, firebaseSync);
 router.post('/forgot-password', authLimiter, forgotPassword);
 router.post('/reset-password', authLimiter, resetPassword);
+router.post('/verify-otp', otpLimiter, verifyOtp);
+router.post('/resend-otp', otpLimiter, resendOtp);
 router.post('/refresh-token', refreshToken);
 router.post('/logout', logout);
 

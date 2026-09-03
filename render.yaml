@@ -12,9 +12,21 @@ services:
         value: 10000
       - key: CLIENT_URL
         sync: false
-      - key: TURSO_DATABASE_URL
+      - key: FIREBASE_API_KEY
         sync: false
-      - key: TURSO_AUTH_TOKEN
+      - key: FIREBASE_AUTH_DOMAIN
+        sync: false
+      - key: FIREBASE_DATABASE_URL
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        sync: false
+      - key: FIREBASE_STORAGE_BUCKET
+        sync: false
+      - key: FIREBASE_MESSAGING_SENDER_ID
+        sync: false
+      - key: FIREBASE_APP_ID
+        sync: false
+      - key: FIREBASE_MEASUREMENT_ID
         sync: false
       - key: GEMINI_API_KEY
         sync: false
@@ -22,15 +34,9 @@ services:
         sync: false
       - key: JWT_REFRESH_SECRET
         sync: false
-      - key: SMTP_HOST
-        value: smtp.gmail.com
-      - key: SMTP_PORT
-        value: 465
-      - key: SMTP_SECURE
-        value: true
-      - key: SMTP_USER
+      - key: USDA_FDC_API_KEY
         sync: false
-      - key: SMTP_PASS
-        sync: false
-      - key: SMTP_FROM
-        sync: false
+      - key: THEMEALDB_API_KEY
+        value: 1
+      - key: THEMEALDB_BASE_URL
+        value: https://www.themealdb.com/api/json/v1

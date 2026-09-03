@@ -296,10 +296,12 @@ export default function JournalPage() {
                   ) : (
                     <div className="divide-y divide-slate-100">
                       {slotEntries.map((entry) => (
-                        <div key={entry.id} className="py-3 flex items-center justify-between gap-4">
-                          <div>
-                            <div className="font-semibold text-slate-900 text-sm">{entry.food_name}</div>
-                            <div className="text-xs text-slate-500 flex items-center gap-3 mt-0.5">
+                        <div key={entry.id} className="py-3 flex items-center justify-between gap-3">
+                          <div className="min-w-0 flex-1 pr-2">
+                            <div className="font-semibold text-slate-900 text-sm truncate" title={entry.food_name}>
+                              {entry.food_name}
+                            </div>
+                            <div className="text-xs text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
                               <span>{entry.quantity_g}g</span>
                               <span>•</span>
                               <span>P: {entry.protein}g</span>
@@ -310,12 +312,15 @@ export default function JournalPage() {
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-4">
-                            <span className="font-bold text-sm text-slate-800">{Math.round(entry.calories)} kcal</span>
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="font-bold text-sm text-slate-800 whitespace-nowrap">
+                              {Math.round(entry.calories)} kcal
+                            </span>
                             <button
                               onClick={() => handleDeleteEntry(entry.id)}
-                              className="text-slate-300 hover:text-red-500 transition-colors p-1"
+                              className="text-slate-300 hover:text-red-500 transition-colors p-1 cursor-pointer"
                               title="Delete entry"
+                              aria-label="Delete food entry"
                             >
                               <Trash2 size={16} />
                             </button>

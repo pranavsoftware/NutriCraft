@@ -50,28 +50,20 @@ function macrosFromCalories(calories, goal) {
 export async function getProfile(req, res) {
   try {
     const userId = req.user.userId || req.user.id;
-    const result = await db.execute({
-      sql: 'SELECT * FROM profiles WHERE user_id = ?',
-      args: [userId],
-    });
+    const profile = await db.getVal(`profiles/${userId}`);
+    const weightList = await db.getList(`weight_logs/${userId}`);
 
-    const weightResult = await db.execute({
-      sql: 'SELECT weight_kg, logged_at FROM weight_logs WHERE user_id = ? ORDER BY logged_at DESC LIMIT 10',
-      args: [userId],
-    });
-
-    if (result.rows.length === 0) {
-      return res.json({
-        success: true,
-        profile: null,
-        weightHistory: weightResult.rows,
-      });
-    }
+    // Sort weight logs descending by logged_at
+    const sortedWeights = weightList.sort((a, b) => {
+      const dateA = new Date(a.logged_at || 0).getTime();
+      const dateB = new Date(b.logged_at || 0).getTime();
+      return dateB - dateA;
+    }).slice(0, 10);
 
     return res.json({
       success: true,
-      profile: result.rows[0],
-      weightHistory: weightResult.rows,
+      profile: profile || null,
+      weightHistory: sortedWeights,
     });
   } catch (err) {
     console.error('[PROFILE] getProfile error:', err);
@@ -100,42 +92,50 @@ export async function updateProfile(req, res) {
     // Compute calorie target & macros using Mifflin-St Jeor
     const calTarget = calculateCalorieTarget(ageNum, heightNum, weightNum, genderVal, activityVal, goalVal);
     const macros = macrosFromCalories(calTarget, goalVal);
+    const now = new Date().toISOString();
 
-    // Check if profile row exists in Turso DB
-    const existing = await db.execute({
-      sql: 'SELECT id FROM profiles WHERE user_id = ?',
-      args: [userId],
-    });
+    const existingProfile = await db.getVal(`profiles/${userId}`);
+    const profileId = existingProfile?.id || randomUUID();
 
-    if (existing.rows.length === 0) {
-      await db.execute({
-        sql: `INSERT INTO profiles (id, user_id, age, height_cm, weight_kg, gender, activity_level, goal, dietary_preference, allergies, daily_calorie_target, daily_protein_target, daily_carb_target, daily_fat_target)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        args: [randomUUID(), userId, ageNum, heightNum, weightNum, genderVal, activityVal, goalVal,
-          dietaryVal, allergiesVal,
-          calTarget, macros.protein, macros.carbs, macros.fat],
-      });
-    } else {
-      await db.execute({
-        sql: `UPDATE profiles SET age=?, height_cm=?, weight_kg=?, gender=?, activity_level=?, goal=?, dietary_preference=?, allergies=?,
-              daily_calorie_target=?, daily_protein_target=?, daily_carb_target=?, daily_fat_target=?, updated_at=datetime('now')
-              WHERE user_id=?`,
-        args: [ageNum, heightNum, weightNum, genderVal, activityVal, goalVal,
-          dietaryVal, allergiesVal,
-          calTarget, macros.protein, macros.carbs, macros.fat, userId],
-      });
-    }
+    const profileData = {
+      id: profileId,
+      user_id: userId,
+      age: ageNum,
+      height_cm: heightNum,
+      weight_kg: weightNum,
+      gender: genderVal,
+      activity_level: activityVal,
+      goal: goalVal,
+      dietary_preference: dietaryVal,
+      allergies: allergiesVal,
+      daily_calorie_target: calTarget,
+      daily_protein_target: macros.protein,
+      daily_carb_target: macros.carbs,
+      daily_fat_target: macros.fat,
+      created_at: existingProfile?.created_at || now,
+      updated_at: now,
+    };
 
-    // Append weight history entry to weight_logs table
+    // Save to Firebase Realtime Database (/profiles/{userId})
+    await db.setVal(`profiles/${userId}`, profileData);
+
+    // Append weight history entry to Firebase RTDB (/weight_logs/{userId})
     if (weightNum) {
-      await db.execute({
-        sql: 'INSERT INTO weight_logs (id, user_id, weight_kg) VALUES (?, ?, ?)',
-        args: [randomUUID(), userId, weightNum],
+      const logId = randomUUID();
+      await db.setVal(`weight_logs/${userId}/${logId}`, {
+        id: logId,
+        user_id: userId,
+        weight_kg: weightNum,
+        logged_at: now,
       });
     }
 
-    const updated = await db.execute({ sql: 'SELECT * FROM profiles WHERE user_id = ?', args: [userId] });
-    return res.json({ success: true, profile: updated.rows[0], message: 'Profile updated successfully.' });
+    return res.json({
+      success: true,
+      profile: profileData,
+      isProfileComplete: true,
+      message: 'Profile updated successfully in Firebase.',
+    });
   } catch (err) {
     console.error('[PROFILE] updateProfile error:', err);
     return res.status(500).json({ success: false, message: 'Failed to update profile.' });
@@ -146,24 +146,24 @@ export async function updateProfile(req, res) {
 export async function exportData(req, res) {
   try {
     const userId = req.user.userId || req.user.id;
-    const [userRes, profileRes, entriesRes, weightsRes, chatsRes, plansRes] = await Promise.all([
-      db.execute({ sql: 'SELECT id, name, email, created_at FROM users WHERE id=?', args: [userId] }),
-      db.execute({ sql: 'SELECT * FROM profiles WHERE user_id=?', args: [userId] }),
-      db.execute({ sql: 'SELECT * FROM food_entries WHERE user_id=? ORDER BY date DESC', args: [userId] }),
-      db.execute({ sql: 'SELECT * FROM weight_logs WHERE user_id=? ORDER BY logged_at DESC', args: [userId] }),
-      db.execute({ sql: 'SELECT * FROM chat_messages WHERE user_id=? ORDER BY created_at DESC LIMIT 200', args: [userId] }),
-      db.execute({ sql: 'SELECT * FROM meal_plans WHERE user_id=? ORDER BY week_start_date DESC', args: [userId] }),
+    const [user, profile, foodEntries, weightLogs, chats, mealPlans] = await Promise.all([
+      db.getVal(`users/${userId}`),
+      db.getVal(`profiles/${userId}`),
+      db.getList(`food_entries/${userId}`),
+      db.getList(`weight_logs/${userId}`),
+      db.getList(`chat_messages/${userId}`),
+      db.getList(`meal_plans/${userId}`),
     ]);
 
     return res.json({
       success: true,
       exportedAt: new Date().toISOString(),
-      user: userRes.rows[0] || null,
-      profile: profileRes.rows[0] || null,
-      foodEntries: entriesRes.rows,
-      weightHistory: weightsRes.rows,
-      chatHistory: chatsRes.rows,
-      mealPlans: plansRes.rows,
+      user: user || null,
+      profile: profile || null,
+      foodEntries: foodEntries.sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+      weightHistory: weightLogs.sort((a, b) => (b.logged_at || '').localeCompare(a.logged_at || '')),
+      chatHistory: chats.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || '')),
+      mealPlans: mealPlans.sort((a, b) => (b.week_start_date || '').localeCompare(a.week_start_date || '')),
     });
   } catch (err) {
     console.error('[PROFILE] exportData error:', err);

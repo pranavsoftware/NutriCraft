@@ -50,3 +50,15 @@ export const aiAnalyzerApi = {
   analyze: (imageBase64: string) => api.post('/ai-analyzer/analyze', { imageBase64 }),
   analyzeBarcode: (barcodeText: string) => api.post('/ai-analyzer/analyze', { barcodeText }),
 };
+
+// ── Food & Recipes (TheMealDB) ───────────────────────────────────────────────
+export const recipeApi = {
+  search: (q: string) => api.get(`/recipes/search?q=${encodeURIComponent(q)}`),
+  getRandom: () => api.get('/recipes/random'),
+  getById: (id: string) => api.get(`/recipes/${id}`),
+  getCategories: () => api.get('/recipes/categories'),
+  getByCategory: (category: string) => api.get(`/recipes/category/${encodeURIComponent(category)}`),
+  getByArea: (area: string) => api.get(`/recipes/area/${encodeURIComponent(area)}`),
+  getByIngredient: (ingredient: string) => api.get(`/recipes/ingredient/${encodeURIComponent(ingredient)}`),
+};
+

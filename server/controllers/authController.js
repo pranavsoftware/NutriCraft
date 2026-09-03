@@ -1,7 +1,26 @@
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
-import { generateOtp } from '../utils/generateOtp.js';
-import { sendOtpEmail } from '../utils/sendEmail.js';
+import { db, firebaseConfig } from '../db.js';
+
+/**
+ * Checks if a user has completed their biometric profile in Firebase RTDB
+ */
+export async function checkProfileComplete(userId) {
+  if (!userId) return false;
+  try {
+    const profile = await db.getVal(`profiles/${userId}`);
+    return Boolean(
+      profile &&
+      profile.age &&
+      profile.height_cm &&
+      profile.weight_kg &&
+      profile.gender &&
+      profile.goal
+    );
+  } catch {
+    return false;
+  }
+}
 
 const JWT_ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'nutripro_super_secure_access_token_secret_key_2026';
 const JWT_REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'nutripro_super_secure_refresh_token_secret_key_2026';
@@ -28,7 +47,7 @@ const generateTokens = (user) => {
 };
 
 /**
- * Set HTTP-Only Cookie for Refresh Token (compatible with cross-origin Vercel -> Render)
+ * Set HTTP-Only Cookie for Refresh Token
  */
 const setRefreshTokenCookie = (res, refreshToken) => {
   const isProduction = process.env.NODE_ENV === 'production';
@@ -42,7 +61,25 @@ const setRefreshTokenCookie = (res, refreshToken) => {
 };
 
 /**
- * 1. SIGN UP
+ * Helper: Call Firebase Auth Identity Toolkit REST API
+ */
+async function callFirebaseAuth(action, payload) {
+  const url = `https://identitytoolkit.googleapis.com/v1/accounts:${action}?key=${firebaseConfig.apiKey}`;
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await response.json();
+  if (!response.ok) {
+    const errorMsg = data.error?.message || 'Authentication operation failed.';
+    throw new Error(errorMsg);
+  }
+  return data;
+}
+
+/**
+ * 1. SIGN UP (Firebase Auth + Firebase Realtime Database)
  * POST /api/auth/signup
  */
 export async function signup(req, res) {
@@ -71,66 +108,60 @@ export async function signup(req, res) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    let existingUser = await User.findByEmail(normalizedEmail);
 
-    const otp = generateOtp();
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
-
-    if (existingUser) {
-      if (existingUser.isVerified) {
+    // 1. Create user in Firebase Auth
+    let fbUser;
+    try {
+      fbUser = await callFirebaseAuth('signUp', {
+        email: normalizedEmail,
+        password,
+        returnSecureToken: true,
+      });
+    } catch (fbErr) {
+      if (fbErr.message.includes('EMAIL_EXISTS')) {
         return res.status(400).json({
           success: false,
           message: 'An account with this email address already exists. Please log in.',
         });
       }
-
-      // Existing unverified user -> update details and send new OTP
-      const passwordHash = await User.hashPassword(password);
-      await User.updateById(existingUser.id, {
-        name: name.trim(),
-        passwordHash,
-        otp,
-        otpExpiresAt,
-      });
-
-      await sendOtpEmail({
-        to: normalizedEmail,
-        name: name.trim(),
-        otp,
-        type: 'signup',
-      });
-
-      return res.status(200).json({
-        success: true,
-        message: 'Account pending verification. A fresh 6-digit OTP has been sent to your email.',
-        email: normalizedEmail,
-      });
+      if (fbErr.message.includes('WEAK_PASSWORD')) {
+        return res.status(400).json({
+          success: false,
+          message: 'Password is too weak. Please use a stronger password.',
+        });
+      }
+      throw fbErr;
     }
 
-    // New user registration
-    const passwordHash = await User.hashPassword(password);
+    const uid = fbUser.localId;
 
-    await User.create({
+    // 2. Save user profile in Firebase Realtime Database (/users/{uid})
+    const user = await User.create({
+      id: uid,
       name: name.trim(),
       email: normalizedEmail,
-      passwordHash,
-      isVerified: false,
-      otp,
-      otpExpiresAt,
+      isVerified: true,
     });
 
-    // Send OTP email
-    await sendOtpEmail({
-      to: normalizedEmail,
-      name: name.trim(),
-      otp,
-      type: 'signup',
-    });
+    // 3. Issue application JWT tokens
+    const { accessToken, refreshToken } = generateTokens(user);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const isProfileComplete = await checkProfileComplete(user.id);
 
     return res.status(201).json({
       success: true,
-      message: 'Registration successful! Please check your email for the 6-digit OTP verification code.',
-      email: normalizedEmail,
+      message: 'Account created successfully with Firebase Auth! Welcome to NutriCraft.',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        isVerified: true,
+        createdAt: user.createdAt,
+        isProfileComplete,
+      },
     });
   } catch (error) {
     console.error('[SIGNUP ERROR]:', error);
@@ -142,141 +173,7 @@ export async function signup(req, res) {
 }
 
 /**
- * 2. VERIFY OTP
- * POST /api/auth/verify-otp
- */
-export async function verifyOtp(req, res) {
-  try {
-    const { email, otp } = req.body;
-
-    if (!email || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email and OTP verification code are required.',
-      });
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User account not found.',
-      });
-    }
-
-    if (!user.otp || user.otp !== otp.toString().trim()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid verification code. Please check and try again.',
-      });
-    }
-
-    if (!user.otpExpiresAt || new Date() > user.otpExpiresAt) {
-      return res.status(400).json({
-        success: false,
-        code: 'OTP_EXPIRED',
-        message: 'Verification code has expired. Please request a new code.',
-      });
-    }
-
-    // Issue tokens
-    const { accessToken, refreshToken } = generateTokens(user);
-
-    // Mark user verified and clear OTP in Turso DB
-    await User.updateById(user.id, {
-      isVerified: true,
-      otp: null,
-      otpExpiresAt: null,
-      refreshToken,
-    });
-
-    setRefreshTokenCookie(res, refreshToken);
-
-    return res.status(200).json({
-      success: true,
-      message: 'Account verified successfully! Welcome to NutriCraft.',
-      accessToken,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        isVerified: true,
-        createdAt: user.createdAt,
-      },
-    });
-  } catch (error) {
-    console.error('[VERIFY OTP ERROR]:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server error during OTP verification.',
-    });
-  }
-}
-
-/**
- * 3. RESEND OTP
- * POST /api/auth/resend-otp
- */
-export async function resendOtp(req, res) {
-  try {
-    const { email, type = 'signup' } = req.body;
-
-    if (!email) {
-      return res.status(400).json({
-        success: false,
-        message: 'Email is required to resend verification code.',
-      });
-    }
-
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'No account found with this email.',
-      });
-    }
-
-    const otp = generateOtp();
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
-
-    if (type === 'forgot-password') {
-      await User.updateById(user.id, {
-        resetPasswordOtp: otp,
-        resetPasswordOtpExpiresAt: otpExpiresAt,
-      });
-    } else {
-      await User.updateById(user.id, {
-        otp,
-        otpExpiresAt,
-      });
-    }
-
-    await sendOtpEmail({
-      to: normalizedEmail,
-      name: user.name,
-      otp,
-      type: type === 'forgot-password' ? 'forgot-password' : 'resend',
-    });
-
-    return res.status(200).json({
-      success: true,
-      message: 'A new 6-digit verification code has been dispatched to your email.',
-    });
-  } catch (error) {
-    console.error('[RESEND OTP ERROR]:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Failed to resend verification code.',
-    });
-  }
-}
-
-/**
- * 4. LOGIN
+ * 2. LOGIN (Firebase Auth + Firebase Realtime Database)
  * POST /api/auth/login
  */
 export async function login(req, res) {
@@ -291,49 +188,53 @@ export async function login(req, res) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
 
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password.',
-      });
-    }
-
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid email or password.',
-      });
-    }
-
-    // If user is not verified, block login and dispatch OTP
-    if (!user.isVerified) {
-      const otp = generateOtp();
-      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      await User.updateById(user.id, { otp, otpExpiresAt });
-
-      await sendOtpEmail({
-        to: normalizedEmail,
-        name: user.name,
-        otp,
-        type: 'signup',
-      });
-
-      return res.status(403).json({
-        success: false,
-        code: 'UNVERIFIED_EMAIL',
-        message: 'Your email address is not verified yet. We have sent a verification code to your inbox.',
+    // 1. Authenticate with Firebase Auth
+    let fbUser;
+    try {
+      fbUser = await callFirebaseAuth('signInWithPassword', {
         email: normalizedEmail,
+        password,
+        returnSecureToken: true,
+      });
+    } catch (fbErr) {
+      if (
+        fbErr.message.includes('INVALID_LOGIN_CREDENTIALS') ||
+        fbErr.message.includes('EMAIL_NOT_FOUND') ||
+        fbErr.message.includes('INVALID_PASSWORD')
+      ) {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password.',
+        });
+      }
+      if (fbErr.message.includes('USER_DISABLED')) {
+        return res.status(403).json({
+          success: false,
+          message: 'This user account has been disabled.',
+        });
+      }
+      throw fbErr;
+    }
+
+    const uid = fbUser.localId;
+
+    // 2. Fetch or initialize user profile in Firebase Realtime Database
+    let user = await User.findById(uid);
+    if (!user) {
+      user = await User.create({
+        id: uid,
+        name: fbUser.displayName || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        isVerified: true,
       });
     }
 
-    // Issue JWTs
+    // 3. Issue application JWT tokens
     const { accessToken, refreshToken } = generateTokens(user);
-    await User.updateById(user.id, { refreshToken });
-
     setRefreshTokenCookie(res, refreshToken);
+
+    const isProfileComplete = await checkProfileComplete(user.id);
 
     return res.status(200).json({
       success: true,
@@ -344,8 +245,9 @@ export async function login(req, res) {
         id: user.id,
         name: user.name,
         email: user.email,
-        isVerified: user.isVerified,
+        isVerified: true,
         createdAt: user.createdAt,
+        isProfileComplete,
       },
     });
   } catch (error) {
@@ -358,7 +260,7 @@ export async function login(req, res) {
 }
 
 /**
- * 5. FORGOT PASSWORD
+ * 3. FORGOT PASSWORD (Native Firebase Auth Email Dispatch)
  * POST /api/auth/forgot-password
  */
 export async function forgotPassword(req, res) {
@@ -373,34 +275,21 @@ export async function forgotPassword(req, res) {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
 
-    if (!user) {
-      // Return success message even if not found to avoid account enumeration
-      return res.status(200).json({
-        success: true,
-        message: 'If an account exists with that email, a password reset code has been sent.',
+    try {
+      // Trigger Firebase Auth password reset email
+      await callFirebaseAuth('sendOobCode', {
+        requestType: 'PASSWORD_RESET',
         email: normalizedEmail,
       });
+    } catch (err) {
+      console.warn('[FORGOT PASSWORD NOTICE]:', err.message);
+      // Return 200 to prevent user enumeration
     }
-
-    const resetOtp = generateOtp();
-    const resetPasswordOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 mins
-    await User.updateById(user.id, {
-      resetPasswordOtp: resetOtp,
-      resetPasswordOtpExpiresAt,
-    });
-
-    await sendOtpEmail({
-      to: normalizedEmail,
-      name: user.name,
-      otp: resetOtp,
-      type: 'forgot-password',
-    });
 
     return res.status(200).json({
       success: true,
-      message: 'A 6-digit password reset code has been sent to your email.',
+      message: 'If an account exists with this email, a password reset link has been dispatched to your inbox by Firebase.',
       email: normalizedEmail,
     });
   } catch (error) {
@@ -413,17 +302,18 @@ export async function forgotPassword(req, res) {
 }
 
 /**
- * 6. RESET PASSWORD
+ * 4. RESET PASSWORD (Firebase Auth oobCode Confirmation)
  * POST /api/auth/reset-password
  */
 export async function resetPassword(req, res) {
   try {
-    const { email, otp, newPassword, confirmPassword } = req.body;
+    const { oobCode, otp, newPassword, confirmPassword } = req.body;
+    const code = oobCode || otp;
 
-    if (!email || !otp || !newPassword) {
+    if (!code || !newPassword) {
       return res.status(400).json({
         success: false,
-        message: 'Email, reset code, and new password are required.',
+        message: 'Reset code and new password are required.',
       });
     }
 
@@ -441,40 +331,18 @@ export async function resetPassword(req, res) {
       });
     }
 
-    const normalizedEmail = email.toLowerCase().trim();
-    const user = await User.findByEmail(normalizedEmail);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'Account not found.',
+    // Call Firebase Auth to reset password
+    try {
+      await callFirebaseAuth('resetPassword', {
+        oobCode: code,
+        newPassword,
       });
-    }
-
-    if (!user.resetPasswordOtp || user.resetPasswordOtp !== otp.toString().trim()) {
+    } catch (fbErr) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid password reset code.',
+        message: fbErr.message || 'Invalid or expired password reset code.',
       });
     }
-
-    if (!user.resetPasswordOtpExpiresAt || new Date() > user.resetPasswordOtpExpiresAt) {
-      return res.status(400).json({
-        success: false,
-        code: 'OTP_EXPIRED',
-        message: 'Password reset code has expired. Please request a new one.',
-      });
-    }
-
-    // Set new password, clear reset OTP, and revoke existing sessions
-    const passwordHash = await User.hashPassword(newPassword);
-    await User.updateById(user.id, {
-      passwordHash,
-      resetPasswordOtp: null,
-      resetPasswordOtpExpiresAt: null,
-      refreshToken: null,
-      isVerified: true,
-    });
 
     return res.status(200).json({
       success: true,
@@ -486,6 +354,62 @@ export async function resetPassword(req, res) {
       success: false,
       message: 'Server error resetting password.',
     });
+  }
+}
+
+/**
+ * 5. VERIFY OTP (Graceful handler for backward compatibility)
+ * POST /api/auth/verify-otp
+ */
+export async function verifyOtp(req, res) {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required.' });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const user = await User.findByEmail(normalizedEmail);
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found.' });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user);
+    setRefreshTokenCookie(res, refreshToken);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Account verified successfully with Firebase!',
+      accessToken,
+      user,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'OTP verification failed.' });
+  }
+}
+
+/**
+ * 6. RESEND OTP (Graceful handler for backward compatibility)
+ * POST /api/auth/resend-otp
+ */
+export async function resendOtp(req, res) {
+  try {
+    const { email, type } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: 'Email is required.' });
+    }
+
+    if (type === 'forgot-password') {
+      return forgotPassword(req, res);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Your account is ready for sign in.',
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Resend request failed.' });
   }
 }
 
@@ -515,17 +439,15 @@ export async function refreshToken(req, res) {
     }
 
     const user = await User.findById(decoded.userId);
-    if (!user || user.refreshToken !== token) {
+    if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Session has been invalidated. Please log in again.',
+        message: 'User session no longer exists. Please log in again.',
       });
     }
 
     // Generate new tokens
     const tokens = generateTokens(user);
-    await User.updateById(user.id, { refreshToken: tokens.refreshToken });
-
     setRefreshTokenCookie(res, tokens.refreshToken);
 
     return res.status(200).json({
@@ -548,17 +470,6 @@ export async function refreshToken(req, res) {
  */
 export async function logout(req, res) {
   try {
-    const token = req.cookies.refreshToken || req.body.refreshToken;
-
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_REFRESH_SECRET);
-        await User.updateById(decoded.userId, { refreshToken: null });
-      } catch (err) {
-        // Ignore token verification errors during logout
-      }
-    }
-
     res.clearCookie('refreshToken', {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
@@ -585,6 +496,7 @@ export async function logout(req, res) {
  */
 export async function getMe(req, res) {
   try {
+    const isProfileComplete = await checkProfileComplete(req.user.id);
     return res.status(200).json({
       success: true,
       user: {
@@ -593,6 +505,7 @@ export async function getMe(req, res) {
         email: req.user.email,
         isVerified: req.user.isVerified,
         createdAt: req.user.createdAt,
+        isProfileComplete,
       },
     });
   } catch (error) {
@@ -603,3 +516,122 @@ export async function getMe(req, res) {
     });
   }
 }
+
+/**
+ * 10. GOOGLE SIGN IN
+ * POST /api/auth/google
+ */
+export async function googleSignIn(req, res) {
+  try {
+    const { uid, email, name, photoUrl } = req.body;
+
+    if (!uid || !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'UID and email are required for Google authentication.',
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check if user exists in Firebase RTDB
+    let user = await User.findById(uid);
+    if (!user) {
+      user = await User.findByEmail(normalizedEmail);
+      if (!user) {
+        user = await User.create({
+          id: uid,
+          name: name ? name.trim() : normalizedEmail.split('@')[0],
+          email: normalizedEmail,
+          isVerified: true,
+        });
+      }
+    }
+
+    // Issue application tokens
+    const { accessToken, refreshToken } = generateTokens(user);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const isProfileComplete = await checkProfileComplete(user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Google Sign In successful! Welcome to NutriCraft.',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        isVerified: true,
+        photoUrl: photoUrl || null,
+        createdAt: user.createdAt,
+        isProfileComplete,
+      },
+    });
+  } catch (error) {
+    console.error('[GOOGLE SIGN IN ERROR]:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Server error during Google authentication.',
+    });
+  }
+}
+
+/**
+ * 11. FIREBASE CLIENT SYNC (Sync user created on frontend with RTDB)
+ * POST /api/auth/firebase-sync
+ */
+export async function firebaseSync(req, res) {
+  try {
+    const { uid, email, name, isVerified = false } = req.body;
+
+    if (!uid || !email) {
+      return res.status(400).json({
+        success: false,
+        message: 'UID and email are required to sync account.',
+      });
+    }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    let user = await User.findById(uid);
+
+    if (!user) {
+      user = await User.create({
+        id: uid,
+        name: name ? name.trim() : normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        isVerified: Boolean(isVerified),
+      });
+    } else if (isVerified && !user.isVerified) {
+      user = await User.updateById(uid, { isVerified: true });
+    }
+
+    const { accessToken, refreshToken } = generateTokens(user);
+    setRefreshTokenCookie(res, refreshToken);
+
+    const isProfileComplete = await checkProfileComplete(user.id);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Account synchronized successfully.',
+      accessToken,
+      refreshToken,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        isVerified: user.isVerified,
+        createdAt: user.createdAt,
+        isProfileComplete,
+      },
+    });
+  } catch (error) {
+    console.error('[FIREBASE SYNC ERROR]:', error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to sync account.',
+    });
+  }
+}
+

@@ -256,7 +256,7 @@ export default function AiAnalyzerPage() {
       ) : (
         /* Barcode Tab */
         <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-100 shadow-xs space-y-4">
-          <form onSubmit={handleBarcodeSubmit} className="flex gap-3">
+          <form onSubmit={handleBarcodeSubmit} className="flex flex-col sm:flex-row gap-3">
             <input
               type="text"
               placeholder="Enter product barcode digits (e.g. 8901030865421)..."
@@ -267,7 +267,7 @@ export default function AiAnalyzerPage() {
             <button
               type="submit"
               disabled={analyzing || !barcodeInput.trim()}
-              className="px-6 py-3 rounded-2xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold flex items-center gap-2 cursor-pointer shadow-xs"
+              className="px-6 py-3 rounded-2xl bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold flex items-center justify-center gap-2 cursor-pointer shadow-xs"
             >
               {analyzing ? <Loader2 size={16} className="animate-spin" /> : <Barcode size={16} />}
               <span>Scan Barcode</span>

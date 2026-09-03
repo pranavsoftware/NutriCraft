@@ -24,22 +24,24 @@ export async function getMealPlan(req, res) {
     const userId = req.user.userId || req.user.id;
     const weekStart = req.query.week || getWeekStart();
 
-    const result = await db.execute({
-      sql: `SELECT * FROM meal_plans WHERE user_id=? AND week_start_date=? ORDER BY day_of_week ASC, meal_type ASC`,
-      args: [userId, weekStart],
-    });
+    const allPlans = await db.getList(`meal_plans/${userId}`);
+    const weekPlans = allPlans
+      .filter((p) => p.week_start_date === weekStart)
+      .sort((a, b) => {
+        if (a.day_of_week !== b.day_of_week) {
+          return (a.day_of_week || 0) - (b.day_of_week || 0);
+        }
+        return (a.meal_type || '').localeCompare(b.meal_type || '');
+      });
 
     // Grocery list
-    const grocery = await db.execute({
-      sql: 'SELECT * FROM grocery_lists WHERE user_id=? AND week_start_date=?',
-      args: [userId, weekStart],
-    });
+    const grocery = await db.getVal(`grocery_lists/${userId}/${weekStart}`);
 
     return res.json({
       success: true,
       weekStart,
-      plan: result.rows,
-      groceryList: grocery.rows[0] || null,
+      plan: weekPlans,
+      groceryList: grocery || null,
     });
   } catch (err) {
     console.error('[MEALPLAN] getMealPlan error:', err);
@@ -53,11 +55,10 @@ export async function generateMealPlan(req, res) {
     const userId = req.user.userId || req.user.id;
     const weekStart = req.body.week || getWeekStart();
 
-    // Get user profile
-    const profileResult = await db.execute({ sql: 'SELECT * FROM profiles WHERE user_id=?', args: [userId] });
-    const userResult = await db.execute({ sql: 'SELECT name FROM users WHERE id=?', args: [userId] });
-    const profile = profileResult.rows[0];
-    const userName = userResult.rows[0]?.name || 'User';
+    // Get user profile from Firebase RTDB
+    const profile = await db.getVal(`profiles/${userId}`);
+    const user = await db.getVal(`users/${userId}`);
+    const userName = user?.name || 'User';
 
     const calTarget = profile?.daily_calorie_target || 2000;
     const protein = profile?.daily_protein_target || 120;
@@ -113,77 +114,98 @@ Include 7 days (day 1 through day 7). Use real common foods.`;
       planData = generateFallbackPlan(calTarget, dietary);
     }
 
-    // Clear existing plan for the week
-    await db.execute({
-      sql: 'DELETE FROM meal_plans WHERE user_id=? AND week_start_date=?',
-      args: [userId, weekStart],
-    });
+    // Clear existing plans for this week in Firebase RTDB
+    const existingPlans = await db.getVal(`meal_plans/${userId}`);
+    if (existingPlans) {
+      for (const [key, plan] of Object.entries(existingPlans)) {
+        if (plan && plan.week_start_date === weekStart) {
+          await db.removeVal(`meal_plans/${userId}/${key}`);
+        }
+      }
+    }
 
-    // Insert new plan
+    // Insert new plan slots into Firebase RTDB
     const groceryItems = {};
+    const savedSlots = [];
+
     for (const day of planData) {
       for (const meal of day.meals || []) {
         const mealId = randomUUID();
-        await db.execute({
-          sql: `INSERT INTO meal_plans (id, user_id, week_start_date, day_of_week, meal_type, food_name, quantity_g, calories, protein, carbs, fat, notes)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          args: [mealId, userId, weekStart, day.day, meal.meal_type, meal.food_name,
-            meal.quantity_g || 100, meal.calories || 0, meal.protein || 0,
-            meal.carbs || 0, meal.fat || 0, meal.notes || ''],
-        });
+        const slotData = {
+          id: mealId,
+          user_id: userId,
+          week_start_date: weekStart,
+          day_of_week: day.day,
+          meal_type: meal.meal_type,
+          food_name: meal.food_name,
+          quantity_g: meal.quantity_g || 100,
+          calories: meal.calories || 0,
+          protein: meal.protein || 0,
+          carbs: meal.carbs || 0,
+          fat: meal.fat || 0,
+          notes: meal.notes || '',
+          created_at: new Date().toISOString(),
+        };
+
+        await db.setVal(`meal_plans/${userId}/${mealId}`, slotData);
+        savedSlots.push(slotData);
+
         const key = meal.food_name.toLowerCase();
         groceryItems[key] = (groceryItems[key] || 0) + (meal.quantity_g || 100);
       }
     }
 
-    // Save grocery list
-    const groceryArr = Object.entries(groceryItems).map(([name, qty]) => ({ name, quantity_g: Math.round(qty) }));
-    const existingGrocery = await db.execute({
-      sql: 'SELECT id FROM grocery_lists WHERE user_id=? AND week_start_date=?',
-      args: [userId, weekStart],
-    });
-    if (existingGrocery.rows.length > 0) {
-      await db.execute({
-        sql: `UPDATE grocery_lists SET items=?, checked_state='{}', updated_at=datetime('now') WHERE user_id=? AND week_start_date=?`,
-        args: [JSON.stringify(groceryArr), userId, weekStart],
-      });
-    } else {
-      await db.execute({
-        sql: `INSERT INTO grocery_lists (id, user_id, week_start_date, items) VALUES (?, ?, ?, ?)`,
-        args: [randomUUID(), userId, weekStart, JSON.stringify(groceryArr)],
-      });
-    }
+    // Save grocery list to Firebase RTDB
+    const groceryArr = Object.entries(groceryItems).map(([name, qty]) => ({
+      name,
+      quantity_g: Math.round(qty),
+    }));
 
-    const saved = await db.execute({
-      sql: 'SELECT * FROM meal_plans WHERE user_id=? AND week_start_date=? ORDER BY day_of_week, meal_type',
-      args: [userId, weekStart],
-    });
-    return res.json({ success: true, weekStart, plan: saved.rows });
+    const groceryData = {
+      id: randomUUID(),
+      user_id: userId,
+      week_start_date: weekStart,
+      items: groceryArr,
+      checked_state: {},
+      updated_at: new Date().toISOString(),
+    };
+
+    await db.setVal(`grocery_lists/${userId}/${weekStart}`, groceryData);
+
+    return res.json({ success: true, weekStart, plan: savedSlots });
   } catch (err) {
     console.error('[MEALPLAN] generateMealPlan error:', err);
     return res.status(500).json({ success: false, message: 'Failed to generate meal plan.' });
   }
 }
 
-// PUT /api/meal-plan/:id  — regenerate single slot
+// PUT /api/meal-plan/:id — regenerate single slot
 export async function regenerateSlot(req, res) {
   try {
     const userId = req.user.userId || req.user.id;
     const { id } = req.params;
     const { food_name, quantity_g, calories, protein, carbs, fat, notes } = req.body;
 
-    const existing = await db.execute({ sql: 'SELECT * FROM meal_plans WHERE id=? AND user_id=?', args: [id, userId] });
-    if (existing.rows.length === 0) {
+    const existing = await db.getVal(`meal_plans/${userId}/${id}`);
+    if (!existing) {
       return res.status(404).json({ success: false, message: 'Meal plan slot not found.' });
     }
 
-    await db.execute({
-      sql: 'UPDATE meal_plans SET food_name=?, quantity_g=?, calories=?, protein=?, carbs=?, fat=?, notes=? WHERE id=? AND user_id=?',
-      args: [food_name, quantity_g || 100, calories || 0, protein || 0, carbs || 0, fat || 0, notes || '', id, userId],
-    });
+    const updatedSlot = {
+      ...existing,
+      food_name: food_name || existing.food_name,
+      quantity_g: quantity_g != null ? Number(quantity_g) : existing.quantity_g,
+      calories: calories != null ? Number(calories) : existing.calories,
+      protein: protein != null ? Number(protein) : existing.protein,
+      carbs: carbs != null ? Number(carbs) : existing.carbs,
+      fat: fat != null ? Number(fat) : existing.fat,
+      notes: notes != null ? notes : existing.notes,
+      updated_at: new Date().toISOString(),
+    };
 
-    const updated = await db.execute({ sql: 'SELECT * FROM meal_plans WHERE id=?', args: [id] });
-    return res.json({ success: true, slot: updated.rows[0] });
+    await db.setVal(`meal_plans/${userId}/${id}`, updatedSlot);
+
+    return res.json({ success: true, slot: updatedSlot });
   } catch (err) {
     console.error('[MEALPLAN] regenerateSlot error:', err);
     return res.status(500).json({ success: false, message: 'Failed to update meal plan slot.' });
@@ -196,22 +218,32 @@ export async function logPlanMeal(req, res) {
     const userId = req.user.userId || req.user.id;
     const { id } = req.params;
 
-    const slotResult = await db.execute({ sql: 'SELECT * FROM meal_plans WHERE id=? AND user_id=?', args: [id, userId] });
-    if (slotResult.rows.length === 0) {
+    const slot = await db.getVal(`meal_plans/${userId}/${id}`);
+    if (!slot) {
       return res.status(404).json({ success: false, message: 'Meal plan slot not found.' });
     }
 
-    const slot = slotResult.rows[0];
     const today = new Date().toISOString().slice(0, 10);
     const entryId = randomUUID();
 
-    await db.execute({
-      sql: `INSERT INTO food_entries (id, user_id, food_name, quantity_g, meal_type, source, calories, protein, carbs, fat, date)
-            VALUES (?, ?, ?, ?, ?, 'meal_plan', ?, ?, ?, ?, ?)`,
-      args: [entryId, userId, slot.food_name, slot.quantity_g, slot.meal_type, slot.calories, slot.protein, slot.carbs, slot.fat, today],
-    });
+    const entryData = {
+      id: entryId,
+      user_id: userId,
+      food_name: slot.food_name,
+      quantity_g: slot.quantity_g || 100,
+      meal_type: slot.meal_type || 'snack',
+      source: 'meal_plan',
+      calories: slot.calories || 0,
+      protein: slot.protein || 0,
+      carbs: slot.carbs || 0,
+      fat: slot.fat || 0,
+      date: today,
+      created_at: new Date().toISOString(),
+    };
 
-    return res.json({ success: true, message: 'Meal logged to food journal.', entryId });
+    await db.setVal(`food_entries/${userId}/${entryId}`, entryData);
+
+    return res.json({ success: true, message: 'Meal logged to food journal in Firebase.', entryId });
   } catch (err) {
     console.error('[MEALPLAN] logPlanMeal error:', err);
     return res.status(500).json({ success: false, message: 'Failed to log meal.' });
@@ -224,10 +256,14 @@ export async function updateGroceryChecked(req, res) {
     const userId = req.user.userId || req.user.id;
     const { week_start_date, checked_state } = req.body;
 
-    await db.execute({
-      sql: `UPDATE grocery_lists SET checked_state=?, updated_at=datetime('now') WHERE user_id=? AND week_start_date=?`,
-      args: [JSON.stringify(checked_state), userId, week_start_date],
-    });
+    const existing = await db.getVal(`grocery_lists/${userId}/${week_start_date}`);
+    const updated = {
+      ...existing,
+      checked_state: checked_state || {},
+      updated_at: new Date().toISOString(),
+    };
+
+    await db.setVal(`grocery_lists/${userId}/${week_start_date}`, updated);
     return res.json({ success: true });
   } catch (err) {
     console.error('[MEALPLAN] updateGroceryChecked error:', err);

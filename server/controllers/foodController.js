@@ -1,13 +1,99 @@
 import { db } from '../db.js';
 import { randomUUID } from 'crypto';
-import axios from 'axios';
-
-const NX_APP_ID = process.env.NUTRITIONIX_APP_ID;
-const NX_APP_KEY = process.env.NUTRITIONIX_APP_KEY;
 
 /**
- * Search the local foods table first; fall back to Nutritionix API if no results.
- * GET /api/foods/search?q=chicken&limit=10
+ * Extract and normalize macronutrients from USDA FoodData Central foodNutrients array.
+ * Supports nutrient lookups by nutrientNumber and nutrientName.
+ * Handles both kcal and kJ units (converts kJ to kcal: kcal = kJ / 4.184).
+ */
+function extractUSDANutrients(foodNutrients = []) {
+  let kcal = 0;
+  let kj = 0;
+  let protein = 0;
+  let carbs = 0;
+  let fat = 0;
+  let fiber = 0;
+
+  for (const n of foodNutrients) {
+    if (!n) continue;
+    const num = String(n.nutrientNumber || '').trim();
+    const name = String(n.nutrientName || '').toLowerCase();
+    const unit = String(n.unitName || '').toUpperCase();
+    const val = Number(n.value) || 0;
+
+    // Energy / Calories (208 = kcal, 268 = kJ)
+    if (num === '208' || (name.includes('energy') && (unit === 'KCAL' || unit === 'CAL'))) {
+      kcal = val;
+    } else if (num === '268' || (name.includes('energy') && unit === 'KJ')) {
+      kj = val;
+    }
+    // Protein (203)
+    else if (num === '203' || name === 'protein') {
+      protein = val;
+    }
+    // Carbohydrates (205)
+    else if (num === '205' || name.includes('carbohydrate')) {
+      carbs = val;
+    }
+    // Total lipid / Fat (204)
+    else if (num === '204' || name.includes('total lipid') || name === 'fat') {
+      fat = val;
+    }
+    // Dietary Fiber (291)
+    else if (num === '291' || name.includes('fiber')) {
+      fiber = val;
+    }
+  }
+
+  // If kcal not directly provided, convert kJ to kcal
+  if (!kcal && kj > 0) {
+    kcal = Math.round((kj / 4.184) * 10) / 10;
+  }
+
+  return {
+    calories: Math.round(kcal * 10) / 10,
+    protein: Math.round(protein * 10) / 10,
+    carbs: Math.round(carbs * 10) / 10,
+    fat: Math.round(fat * 10) / 10,
+    fiber: Math.round(fiber * 10) / 10,
+  };
+}
+
+/**
+ * Normalizes a USDA FoodData Central item into NutriCraft's standard food schema.
+ */
+function normalizeUSDAFood(item) {
+  if (!item || !item.description) return null;
+
+  const nutrients = extractUSDANutrients(item.foodNutrients);
+  const fdcId = item.fdcId;
+  const id = `usda_${fdcId}`;
+
+  // Preserve USDA serving size if provided; default to 100g
+  const servingSize = Number(item.servingSize) > 0 ? Number(item.servingSize) : 100;
+  const servingUnit = item.servingSizeUnit || item.householdServingFullText || 'g';
+
+  return {
+    id,
+    name: item.description.trim(),
+    brand: item.brandOwner || item.brandName || null,
+    calories_per_100g: nutrients.calories,
+    protein_per_100g: nutrients.protein,
+    carbs_per_100g: nutrients.carbs,
+    fat_per_100g: nutrients.fat,
+    fiber_per_100g: nutrients.fiber,
+    serving_size_g: servingSize,
+    serving_unit: servingUnit,
+    source: 'USDA',
+    fdcId: fdcId,
+    external_id: fdcId,
+    created_at: new Date().toISOString(),
+  };
+}
+
+/**
+ * Search the Firebase foods table first; fall back to USDA FoodData Central API if < 3 results.
+ * GET /api/foods/search?q=avocado&limit=10
  */
 export async function searchFoods(req, res) {
   const q = (req.query.q || '').trim();
@@ -18,97 +104,184 @@ export async function searchFoods(req, res) {
   }
 
   try {
-    // 1. Local search
-    const localResult = await db.execute({
-      sql: `SELECT * FROM foods WHERE name LIKE ? ORDER BY name LIMIT ?`,
-      args: [`%${q}%`, limit],
-    });
+    const qLower = q.toLowerCase();
+    const allFoods = await db.getVal('foods');
+    const localMatches = [];
 
-    if (localResult.rows.length >= 3) {
-      return res.json({ success: true, source: 'local', foods: localResult.rows });
-    }
-
-    // 2. Nutritionix API fallback
-    if (NX_APP_ID && NX_APP_KEY) {
-      try {
-        const { data } = await axios.get('https://trackapi.nutritionix.com/v2/search/instant', {
-          headers: { 'x-app-id': NX_APP_ID, 'x-app-key': NX_APP_KEY },
-          params: { query: q, self: false, branded: false, common: true },
-          timeout: 5000,
-        });
-
-        const items = (data.common || []).slice(0, limit).map((item) => ({
-          id: `nx_${item.food_name.replace(/\s+/g, '_').toLowerCase()}`,
-          name: item.food_name,
-          brand: item.brand_name || null,
-          calories_per_100g: item.nf_calories || 0,
-          protein_per_100g: item.nf_protein || 0,
-          carbs_per_100g: item.nf_total_carbohydrate || 0,
-          fat_per_100g: item.nf_total_fat || 0,
-          fiber_per_100g: item.nf_dietary_fiber || 0,
-          serving_size_g: item.serving_weight_grams || 100,
-          serving_unit: item.serving_unit || 'g',
-          source: 'nutritionix',
-          external_id: item.nix_item_id || null,
-        }));
-
-        // Cache results to local DB
-        for (const food of items) {
-          await db.execute({
-            sql: `INSERT OR IGNORE INTO foods (id, name, brand, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, serving_size_g, serving_unit, source, external_id)
-                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            args: [food.id, food.name, food.brand, food.calories_per_100g, food.protein_per_100g,
-              food.carbs_per_100g, food.fat_per_100g, food.fiber_per_100g,
-              food.serving_size_g, food.serving_unit, food.source, food.external_id],
-          });
+    // 1. Search existing Firebase RTDB foods
+    if (allFoods) {
+      for (const [id, food] of Object.entries(allFoods)) {
+        if (food && food.name && food.name.toLowerCase().includes(qLower)) {
+          localMatches.push({ id: food.id || id, ...food });
+          if (localMatches.length >= limit) break;
         }
-
-        return res.json({ success: true, source: 'nutritionix', foods: items });
-      } catch (apiErr) {
-        console.warn('[FOOD] Nutritionix API error:', apiErr.message);
       }
     }
 
-    // 3. Return local results even if < 3
-    return res.json({ success: true, source: 'local', foods: localResult.rows });
+    // If Firebase produces at least 3 suitable results, return immediately
+    if (localMatches.length >= 3) {
+      console.log(`🔎 Food search: "${q}"`);
+      console.log(`📦 Firebase results: ${localMatches.length} (sufficient, skipping USDA)`);
+      return res.json({ success: true, source: 'firebase', foods: localMatches });
+    }
+
+    console.log(`🔎 Food search: "${q}"`);
+    console.log(`📦 Firebase results: ${localMatches.length}`);
+
+    // 2. USDA FoodData Central API fallback if configured
+    const apiKey = process.env.USDA_FDC_API_KEY;
+    if (!apiKey) {
+      console.log('⚠️  USDA FoodData Central not configured (optional)');
+      return res.json({ success: true, source: 'firebase', foods: localMatches });
+    }
+
+    console.log('🥗 USDA fallback triggered');
+    let usdaFoods = [];
+
+    try {
+      const response = await fetch(
+        `https://api.nal.usda.gov/fdc/v1/foods/search?api_key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            query: q,
+            pageSize: Math.max(limit, 10),
+          }),
+          signal: AbortSignal.timeout(6000), // 6-second timeout
+        }
+      );
+
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          console.warn(`[FOOD] USDA API authorization failed (${response.status}). Check USDA_FDC_API_KEY.`);
+        } else if (response.status === 429) {
+          console.warn('[FOOD] USDA API rate limit reached (429).');
+        } else {
+          console.warn(`[FOOD] USDA API returned status ${response.status}.`);
+        }
+      } else {
+        const data = await response.json();
+        const rawItems = Array.isArray(data.foods) ? data.foods : [];
+
+        // Normalize USDA items
+        const normalizedItems = rawItems
+          .map(normalizeUSDAFood)
+          .filter((f) => f && f.name);
+
+        console.log(`🥗 USDA results: ${normalizedItems.length}`);
+
+        // Cache new USDA foods to Firebase RTDB (/foods/{foodId})
+        let newlyCachedCount = 0;
+        for (const food of normalizedItems) {
+          try {
+            const existing = await db.getVal(`foods/${food.id}`);
+            if (!existing) {
+              await db.setVal(`foods/${food.id}`, food);
+              newlyCachedCount++;
+            }
+          } catch (cacheErr) {
+            console.warn(`[FOOD] Failed to cache USDA food ${food.id}:`, cacheErr.message);
+          }
+        }
+
+        if (newlyCachedCount > 0) {
+          console.log(`💾 Cached ${newlyCachedCount} USDA foods to Firebase`);
+        }
+
+        usdaFoods = normalizedItems;
+      }
+    } catch (apiErr) {
+      console.warn('[FOOD] USDA FoodData Central API error:', apiErr.message);
+      // Fallback continues without crashing: return localMatches below
+    }
+
+    // 3. Combine Firebase results + USDA results (deduplicate)
+    const existingIds = new Set(localMatches.map((f) => f.id));
+    const existingNames = new Set(localMatches.map((f) => f.name.toLowerCase().trim()));
+    const combined = [...localMatches];
+
+    for (const item of usdaFoods) {
+      const normalizedName = item.name.toLowerCase().trim();
+      if (!existingIds.has(item.id) && !existingNames.has(normalizedName)) {
+        combined.push(item);
+        existingIds.add(item.id);
+        existingNames.add(normalizedName);
+      }
+      if (combined.length >= limit) break;
+    }
+
+    console.log(`✅ Returning ${combined.length} food results`);
+
+    const source =
+      localMatches.length > 0 && usdaFoods.length > 0
+        ? 'combined'
+        : usdaFoods.length > 0
+        ? 'usda'
+        : 'firebase';
+
+    return res.json({ success: true, source, foods: combined });
   } catch (err) {
     console.error('[FOOD] searchFoods error:', err);
     return res.status(500).json({ success: false, message: 'Food search failed.' });
   }
 }
 
-// GET /api/foods/:id
+/**
+ * GET /api/foods/:id
+ */
 export async function getFoodById(req, res) {
   try {
-    const result = await db.execute({
-      sql: 'SELECT * FROM foods WHERE id = ?',
-      args: [req.params.id],
-    });
-    if (result.rows.length === 0) {
+    const food = await db.getVal(`foods/${req.params.id}`);
+    if (!food) {
       return res.status(404).json({ success: false, message: 'Food not found.' });
     }
-    return res.json({ success: true, food: result.rows[0] });
+    return res.json({ success: true, food: { id: food.id || req.params.id, ...food } });
   } catch (err) {
     console.error('[FOOD] getFoodById error:', err);
     return res.status(500).json({ success: false, message: 'Failed to fetch food.' });
   }
 }
 
-// POST /api/foods (create custom food)
+/**
+ * POST /api/foods (create custom food)
+ */
 export async function createFood(req, res) {
   try {
-    const { name, calories_per_100g, protein_per_100g = 0, carbs_per_100g = 0, fat_per_100g = 0, fiber_per_100g = 0, serving_size_g = 100, serving_unit = 'g' } = req.body;
+    const {
+      name,
+      calories_per_100g,
+      protein_per_100g = 0,
+      carbs_per_100g = 0,
+      fat_per_100g = 0,
+      fiber_per_100g = 0,
+      serving_size_g = 100,
+      serving_unit = 'g',
+    } = req.body;
+
     if (!name || calories_per_100g == null) {
       return res.status(400).json({ success: false, message: 'name and calories_per_100g are required.' });
     }
+
     const id = `custom_${randomUUID()}`;
-    await db.execute({
-      sql: `INSERT INTO foods (id, name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, serving_size_g, serving_unit, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'custom')`,
-      args: [id, name, calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g, fiber_per_100g, serving_size_g, serving_unit],
-    });
-    const result = await db.execute({ sql: 'SELECT * FROM foods WHERE id = ?', args: [id] });
-    return res.status(201).json({ success: true, food: result.rows[0] });
+    const customFood = {
+      id,
+      name: name.trim(),
+      calories_per_100g: Number(calories_per_100g),
+      protein_per_100g: Number(protein_per_100g) || 0,
+      carbs_per_100g: Number(carbs_per_100g) || 0,
+      fat_per_100g: Number(fat_per_100g) || 0,
+      fiber_per_100g: Number(fiber_per_100g) || 0,
+      serving_size_g: Number(serving_size_g) || 100,
+      serving_unit: serving_unit || 'g',
+      source: 'custom',
+      created_at: new Date().toISOString(),
+    };
+
+    await db.setVal(`foods/${id}`, customFood);
+    return res.status(201).json({ success: true, food: customFood });
   } catch (err) {
     console.error('[FOOD] createFood error:', err);
     return res.status(500).json({ success: false, message: 'Failed to create food.' });

@@ -1,10 +1,11 @@
 import express from 'express';
-import { authenticate } from '../middleware/auth.js';
+import { authenticate, requireCompleteProfile } from '../middleware/auth.js';
 import { getEntries, addEntry, updateEntry, deleteEntry } from '../controllers/journalController.js';
 
 const router = express.Router();
 
 router.use(authenticate);
+router.use(requireCompleteProfile);
 
 router.get('/entries', getEntries);
 router.post('/entries', addEntry);

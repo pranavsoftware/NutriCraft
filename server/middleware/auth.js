@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 
 /**
- * Authentication middleware to verify JWT access token
+ * Authentication middleware to verify JWT access token and load Firebase user
  */
 export async function authenticateToken(req, res, next) {
   try {
@@ -41,11 +41,13 @@ export async function authenticateToken(req, res, next) {
       });
     }
 
-    const user = await User.findById(decoded.userId);
+    const userId = decoded.userId || decoded.sub || decoded.uid;
+    const user = await User.findById(userId);
+
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'User belonging to this token no longer exists.',
+        message: 'User belonging to this session was not found.',
       });
     }
 
@@ -60,6 +62,49 @@ export async function authenticateToken(req, res, next) {
     return res.status(500).json({
       success: false,
       message: 'Server error during authentication.',
+    });
+  }
+}
+
+/**
+ * Middleware to ensure the authenticated user has completed their biometric profile
+ */
+export async function requireCompleteProfile(req, res, next) {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required.',
+      });
+    }
+
+    const { db } = await import('../db.js');
+    const profile = await db.getVal(`profiles/${userId}`);
+    const isComplete = Boolean(
+      profile &&
+      profile.age &&
+      profile.height_cm &&
+      profile.weight_kg &&
+      profile.gender &&
+      profile.goal
+    );
+
+    if (!isComplete) {
+      return res.status(403).json({
+        success: false,
+        code: 'PROFILE_INCOMPLETE',
+        message: 'Please complete your biometric profile details first to access this feature.',
+      });
+    }
+
+    req.profile = profile;
+    next();
+  } catch (error) {
+    console.error('[REQUIRE COMPLETE PROFILE ERROR]:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to verify profile status.',
     });
   }
 }

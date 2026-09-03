@@ -51,7 +51,7 @@ export default function Hero() {
         </div>
         
         {/* Hyper Best Award Badge */}
-        <div className="absolute -bottom-4 -left-4 sm:bottom-6 sm:-right-4 bg-white p-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
+        <div className="absolute bottom-4 left-4 sm:bottom-6 sm:-right-4 sm:left-auto bg-white p-3.5 sm:p-4 rounded-2xl shadow-xl border border-slate-100 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-green-50 text-green-600 flex items-center justify-center font-bold">
             <Sparkles size={20} />
           </div>

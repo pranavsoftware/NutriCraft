@@ -1,0 +1,6 @@
+# Vercel Deployment Ignore Rules
+.git
+scratch/
+*.log
+.DS_Store
+Thumbs.db

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { profileApi } from '../../services/features';
 import { useAuth } from '../../context/AuthContext';
 import { 
   User, Check, AlertCircle, Loader2, 
-  Flame, Activity, ShieldCheck, Scale, Info, History
+  Flame, Activity, ShieldCheck, Scale, Info, History,
+  Sparkles, ArrowRight, LockOpen, Lock
 } from 'lucide-react';
 import ThemeLoader from '../../components/common/ThemeLoader';
 
@@ -28,7 +30,10 @@ interface WeightLogItem {
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth();
+  const { user, markProfileComplete } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
   const [profile, setProfile] = useState<ProfileData>({
     age: '',
     height_cm: '',
@@ -48,8 +53,11 @@ export default function ProfilePage() {
   const [hasExistingProfile, setHasExistingProfile] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [justUnlocked, setJustUnlocked] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+
+  const isProfileRequired = !user?.isProfileComplete || !hasExistingProfile;
 
   useEffect(() => {
     loadProfile();
@@ -101,9 +109,17 @@ export default function ProfilePage() {
       if (res.data.success && res.data.profile) {
         setProfile(res.data.profile);
         setHasExistingProfile(true);
-        setSuccessMsg('Your profile and metabolic targets have been saved to the database.');
-        setTimeout(() => setSuccessMsg(''), 4000);
+        markProfileComplete();
+        setJustUnlocked(true);
+        setSuccessMsg('🎉 Profile saved and verified! All NutriCraft features are now unlocked.');
         await loadProfile();
+
+        // If user just completed their required setup, automatically take them to dashboard after 2.5s
+        if (isProfileRequired) {
+          setTimeout(() => {
+            navigate('/dashboard');
+          }, 2500);
+        }
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { message?: string } } };
@@ -119,6 +135,58 @@ export default function ProfilePage() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {/* Onboarding Welcome Banner for Incomplete Profiles */}
+      {isProfileRequired && !justUnlocked && (
+        <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-[#0B1E29] to-teal-950 border-2 border-emerald-500/40 text-white shadow-xl relative overflow-hidden">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-500/30 shadow-inner">
+              <Sparkles size={24} />
+            </div>
+            <div className="space-y-1.5 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold text-[11px] border border-emerald-500/40 uppercase tracking-wider">
+                  Step 1 of 1: Profile Setup
+                </span>
+                <span className="text-xs text-slate-300 flex items-center gap-1">
+                  <Lock size={12} className="text-amber-400" /> Other features locked until saved
+                </span>
+              </div>
+              <h2 className="text-lg sm:text-xl font-bold text-white font-serif-display">
+                Welcome to NutriCraft! Please set up your biometric profile first.
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Before you can access the <strong>Food Journal</strong>, <strong>Food & Recipes</strong>, <strong>Meal Planner</strong>, <strong>AI Analyzer</strong>, and <strong>Analytics</strong>, our Mifflin-St Jeor engine needs your age, height, weight, and goals to calculate your daily metabolic requirements.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Celebration Card When Profile Just Unlocked */}
+      {justUnlocked && (
+        <div className="p-6 rounded-3xl bg-emerald-900/30 border-2 border-emerald-500/50 text-white shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-4 animate-fadeIn">
+          <div className="flex items-center gap-3.5">
+            <div className="w-12 h-12 rounded-2xl bg-emerald-500 text-white flex items-center justify-center font-bold shadow-lg shrink-0">
+              <LockOpen size={24} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-white">All Features Successfully Unlocked!</h3>
+              <p className="text-xs text-emerald-200">
+                Your custom daily caloric and macro targets have been saved. Redirecting to your dashboard...
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => navigate('/dashboard')}
+            className="px-6 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-sm flex items-center gap-2 transition-all shadow-lg hover:scale-105 active:scale-95 shrink-0 cursor-pointer"
+          >
+            <span>Go to Dashboard</span>
+            <ArrowRight size={16} />
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white p-6 rounded-3xl border border-slate-100 shadow-xs flex items-center justify-between">
         <div className="flex items-center gap-3.5">
@@ -143,13 +211,6 @@ export default function ProfilePage() {
         <div className="p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-center gap-2">
           <AlertCircle size={18} className="shrink-0" />
           <span>{errorMsg}</span>
-        </div>
-      )}
-
-      {!hasExistingProfile && !loading && (
-        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex items-center gap-2.5">
-          <Info size={16} className="text-blue-600 shrink-0" />
-          <span>Enter your personal biometric details below to save your profile into the database and calculate your custom Mifflin-St Jeor daily nutrition targets.</span>
         </div>
       )}
 

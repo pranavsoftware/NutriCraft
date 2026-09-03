@@ -14,11 +14,13 @@ const HISTORY_LIMIT = 20;
 export async function getChatHistory(req, res) {
   try {
     const userId = req.user.userId || req.user.id;
-    const result = await db.execute({
-      sql: 'SELECT id, role, content, created_at FROM chat_messages WHERE user_id=? ORDER BY created_at ASC LIMIT ?',
-      args: [userId, HISTORY_LIMIT],
-    });
-    return res.json({ success: true, messages: result.rows });
+    const allMessages = await db.getList(`chat_messages/${userId}`);
+
+    const sortedMessages = allMessages
+      .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+      .slice(-HISTORY_LIMIT);
+
+    return res.json({ success: true, messages: sortedMessages });
   } catch (err) {
     console.error('[CHAT] getChatHistory error:', err);
     return res.status(500).json({ success: false, message: 'Failed to fetch chat history.' });
@@ -34,37 +36,37 @@ export async function sendMessage(req, res) {
       return res.status(400).json({ success: false, message: 'Message cannot be empty.' });
     }
 
-    // Save user message
-    await db.execute({
-      sql: 'INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, ?, ?)',
-      args: [randomUUID(), userId, 'user', message.trim()],
+    const now = new Date().toISOString();
+    const userMsgId = randomUUID();
+
+    // Save user message to Firebase RTDB
+    await db.setVal(`chat_messages/${userId}/${userMsgId}`, {
+      id: userMsgId,
+      user_id: userId,
+      role: 'user',
+      content: message.trim(),
+      created_at: now,
     });
 
-    // Gather context: today's food entries + profile
-    const today = new Date().toISOString().slice(0, 10);
-    const [entriesResult, profileResult, weightResult] = await Promise.all([
-      db.execute({
-        sql: `SELECT food_name, quantity_g, meal_type, calories, protein, carbs, fat
-              FROM food_entries WHERE user_id=? AND date=? ORDER BY created_at ASC`,
-        args: [userId, today],
-      }),
-      db.execute({ sql: 'SELECT * FROM profiles WHERE user_id=?', args: [userId] }),
-      db.execute({
-        sql: 'SELECT weight_kg, logged_at FROM weight_logs WHERE user_id=? ORDER BY logged_at DESC LIMIT 3',
-        args: [userId],
-      }),
+    // Gather context: today's food entries + profile + weight
+    const today = now.slice(0, 10);
+    const [allEntries, profile, allWeights] = await Promise.all([
+      db.getList(`food_entries/${userId}`),
+      db.getVal(`profiles/${userId}`),
+      db.getList(`weight_logs/${userId}`),
     ]);
 
-    const profile = profileResult.rows[0];
-    const entries = entriesResult.rows;
-    const weights = weightResult.rows;
+    const todayEntries = allEntries.filter((e) => e.date === today);
+    const recentWeights = allWeights
+      .sort((a, b) => (b.logged_at || '').localeCompare(a.logged_at || ''))
+      .slice(0, 3);
 
-    const todayTotals = entries.reduce(
+    const todayTotals = todayEntries.reduce(
       (acc, e) => ({
-        calories: acc.calories + (e.calories || 0),
-        protein: acc.protein + (e.protein || 0),
-        carbs: acc.carbs + (e.carbs || 0),
-        fat: acc.fat + (e.fat || 0),
+        calories: acc.calories + (Number(e.calories) || 0),
+        protein: acc.protein + (Number(e.protein) || 0),
+        carbs: acc.carbs + (Number(e.carbs) || 0),
+        fat: acc.fat + (Number(e.fat) || 0),
       }),
       { calories: 0, protein: 0, carbs: 0, fat: 0 }
     );
@@ -73,11 +75,11 @@ export async function sendMessage(req, res) {
       `User profile: goal=${profile?.goal || 'maintain'}, age=${profile?.age || 'unknown'}, gender=${profile?.gender || 'unknown'}`,
       `Daily targets: ${profile?.daily_calorie_target || 2000} kcal, ${profile?.daily_protein_target || 120}g protein, ${profile?.daily_carb_target || 250}g carbs, ${profile?.daily_fat_target || 65}g fat`,
       `Today's intake (${today}): ${Math.round(todayTotals.calories)} kcal, ${Math.round(todayTotals.protein)}g protein, ${Math.round(todayTotals.carbs)}g carbs, ${Math.round(todayTotals.fat)}g fat`,
-      entries.length > 0
-        ? `Today's meals: ${entries.map((e) => `${e.food_name} (${e.meal_type}, ${e.quantity_g}g, ${e.calories} kcal)`).join('; ')}`
+      todayEntries.length > 0
+        ? `Today's meals: ${todayEntries.map((e) => `${e.food_name} (${e.meal_type}, ${e.quantity_g}g, ${e.calories} kcal)`).join('; ')}`
         : 'No meals logged today yet.',
-      weights.length > 0
-        ? `Recent weight: ${weights.map((w) => `${w.weight_kg}kg`).join(', ')}`
+      recentWeights.length > 0
+        ? `Recent weight: ${recentWeights.map((w) => `${w.weight_kg}kg`).join(', ')}`
         : '',
       `Dietary preference: ${profile?.dietary_preference || 'none'}`,
       `Allergies: ${profile?.allergies || 'none'}`,
@@ -118,13 +120,21 @@ ${contextBlock}`;
       aiReply = generateFallbackReply(message, todayTotals, profile);
     }
 
-    // Save AI reply
-    await db.execute({
-      sql: 'INSERT INTO chat_messages (id, user_id, role, content) VALUES (?, ?, ?, ?)',
-      args: [randomUUID(), userId, 'assistant', aiReply],
+    // Save AI reply to Firebase RTDB
+    const aiMsgId = randomUUID();
+    await db.setVal(`chat_messages/${userId}/${aiMsgId}`, {
+      id: aiMsgId,
+      user_id: userId,
+      role: 'assistant',
+      content: aiReply,
+      created_at: new Date().toISOString(),
     });
 
-    return res.json({ success: true, reply: aiReply, context: { todayTotals, hasProfile: !!profile } });
+    return res.json({
+      success: true,
+      reply: aiReply,
+      context: { todayTotals, hasProfile: !!profile },
+    });
   } catch (err) {
     console.error('[CHAT] sendMessage error:', err);
     return res.status(500).json({ success: false, message: 'Failed to send message.' });
@@ -135,8 +145,8 @@ ${contextBlock}`;
 export async function clearHistory(req, res) {
   try {
     const userId = req.user.userId || req.user.id;
-    await db.execute({ sql: 'DELETE FROM chat_messages WHERE user_id=?', args: [userId] });
-    return res.json({ success: true, message: 'Chat history cleared.' });
+    await db.removeVal(`chat_messages/${userId}`);
+    return res.json({ success: true, message: 'Chat history cleared in Firebase.' });
   } catch (err) {
     console.error('[CHAT] clearHistory error:', err);
     return res.status(500).json({ success: false, message: 'Failed to clear history.' });

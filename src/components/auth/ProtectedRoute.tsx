@@ -8,7 +8,7 @@ interface ProtectedRouteProps {
 }
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const location = useLocation();
 
   if (isLoading) {
@@ -27,6 +27,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" state={{ from: location }} replace />;
+  }
+
+  // If user profile is not completed, enforce completing profile first
+  if (user && user.isProfileComplete === false && location.pathname !== '/dashboard/profile') {
+    return <Navigate to="/dashboard/profile" state={{ profileSetupRequired: true }} replace />;
   }
 
   return <>{children}</>;

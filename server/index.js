@@ -13,7 +13,8 @@ import analyticsRoutes from './routes/analytics.js';
 import chatRoutes from './routes/chat.js';
 import mealPlanRoutes from './routes/mealPlan.js';
 import aiAnalyzerRoutes from './routes/aiAnalyzer.js';
-import { initDb } from './db.js';
+import recipeRoutes from './routes/recipes.js';
+import { initDb, firebaseConfig } from './db.js';
 
 // Load environment variables
 dotenv.config();
@@ -25,7 +26,6 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
-const TURSO_DATABASE_URL = process.env.TURSO_DATABASE_URL || 'libsql://nutricraft-project123.aws-ap-south-1.turso.io';
 
 // ── Middleware ────────────────────────────────────────────────────────────────
 app.use(
@@ -72,10 +72,12 @@ app.get('/api/health', (req, res) => {
     status: 'online',
     timestamp: new Date(),
     service: 'NutriCraft Fullstack Backend',
-    database: TURSO_DATABASE_URL,
-    smtp: process.env.SMTP_USER ? 'configured' : 'not configured',
+    database: 'Firebase Realtime Database',
+    databaseURL: firebaseConfig.databaseURL,
+    auth: 'Firebase Auth',
     gemini: process.env.GEMINI_API_KEY ? 'configured' : 'not configured',
-    nutritionix: process.env.NUTRITIONIX_APP_ID ? 'configured' : 'not configured',
+    usda: process.env.USDA_FDC_API_KEY ? 'configured' : 'not configured',
+    themealdb: process.env.THEMEALDB_API_KEY ? 'configured' : 'not configured',
   });
 });
 
@@ -88,6 +90,7 @@ app.use('/api/analytics',   analyticsRoutes);
 app.use('/api/chat',        chatRoutes);
 app.use('/api/meal-plan',   mealPlanRoutes);
 app.use('/api/ai-analyzer', aiAnalyzerRoutes);
+app.use('/api/recipes',     recipeRoutes);
 
 // ── Serve Frontend Static Files for Render / Production ───────────────────────
 const distPath = path.join(__dirname, '../dist');
@@ -111,12 +114,22 @@ app.use((err, req, res, next) => {
 });
 
 // ── Start Server ──────────────────────────────────────────────────────────────
-if (!process.env.VERCEL) {
+const isServerless = Boolean(
+  process.env.VERCEL ||
+  process.env.VERCEL_ENV ||
+  process.env.NOW_REGION ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME
+);
+
+if (!isServerless && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, HOST, async () => {
     console.log(`🚀 [NUTRICRAFT] Server running on http://${HOST}:${PORT}`);
-    console.log(`🛡️  CORS configured for local and Render deployments`);
+    console.log(`🛡️  CORS configured for local, Vercel, and Render deployments`);
+    console.log(`🔥 Firebase RTDB: ${firebaseConfig.databaseURL}`);
+    console.log(`🔐 Firebase Auth: enabled (Project: ${firebaseConfig.projectId})`);
     console.log(`📊 Gemini AI: ${process.env.GEMINI_API_KEY ? '✅ configured' : '⚠️  not configured (add GEMINI_API_KEY to .env)'}`);
-    console.log(`🍎 Nutritionix: ${process.env.NUTRITIONIX_APP_ID ? '✅ configured' : '⚠️  not configured (optional)'}`);
+    console.log(`🥗 USDA FoodData Central: ${process.env.USDA_FDC_API_KEY ? '✅ configured' : '⚠️  not configured (optional)'}`);
+    console.log(`🍳 TheMealDB: ${process.env.THEMEALDB_API_KEY ? '✅ configured' : '⚠️  not configured (optional)'}`);
     await initDb();
   });
 }

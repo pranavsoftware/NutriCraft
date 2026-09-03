@@ -12,11 +12,24 @@
     --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
   }
 
-  body {
+  html, body {
     font-family: var(--font-sans);
     color: #1e293b;
     background-color: #f8fafc;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+    max-width: 100vw;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  button, a, input, select, textarea {
+    touch-action: manipulation;
+  }
+
+  /* iOS safe area insets helper */
+  .safe-area-bottom {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
 
   h1, h2, h3, .font-display {
@@ -49,32 +62,71 @@
   background-color: #15803d;
 }
 
-/* Smooth input styling */
+/* Premium Auth input styling */
 .auth-input {
   width: 100%;
-  padding: 0.75rem 1rem;
-  border-radius: 0.75rem;
-  border: 1px solid #cbd5e1;
+  padding-top: 0.85rem;
+  padding-bottom: 0.85rem;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  border-radius: 0.875rem;
+  border: 1.5px solid #e2e8f0;
   background-color: #ffffff;
-  font-size: 0.875rem;
-  color: #1e293b;
-  transition: all 0.2s ease;
+  font-size: 0.9375rem;
+  line-height: 1.5;
+  color: #0f172a;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   outline: none;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+}
+
+/* Ensure left icon spacing is never overridden by shorthand padding */
+.auth-input.pl-10,
+.auth-input.pl-11,
+.auth-input.pl-12,
+.auth-input.has-left-icon {
+  padding-left: 2.85rem !important;
+}
+
+/* Ensure right icon spacing is never overridden by shorthand padding */
+.auth-input.pr-10,
+.auth-input.pr-11,
+.auth-input.pr-12,
+.auth-input.has-right-icon {
+  padding-right: 2.85rem !important;
 }
 
 .auth-input:focus {
-  border-color: #16a34a;
-  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
+  border-color: #10b981;
+  background-color: #ffffff;
+  box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12), 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.auth-input::placeholder {
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+/* Preserve crisp white background and dark text on browser autofill */
+.auth-input:-webkit-autofill,
+.auth-input:-webkit-autofill:hover,
+.auth-input:-webkit-autofill:focus,
+.auth-input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset !important;
+  -webkit-text-fill-color: #0f172a !important;
+  caret-color: #0f172a !important;
+  border-color: #cbd5e1 !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 .auth-input.error {
-  border-color: #ef4444;
-  background-color: #fef2f2;
+  border-color: #f43f5e;
+  background-color: #fff1f2;
 }
 
 .auth-input.error:focus {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+  border-color: #f43f5e;
+  box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.15);
 }
 
 /* Auto-advancing OTP single box styling */
@@ -245,6 +297,35 @@
   animation: spinGentle 25s linear infinite;
 }
 
+/* Shimmer Wave for Skeleton Loaders */
+@keyframes shimmerWave {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.animate-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.animate-shimmer::after {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  transform: translateX(-100%);
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.06) 20%,
+    rgba(255, 255, 255, 0.12) 60%,
+    rgba(255, 255, 255, 0)
+  );
+  animation: shimmerWave 1.8s infinite;
+  content: '';
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
@@ -259,4 +340,26 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* Responsive smooth scrolling & momentum touch utilities */
+.scrollbar-thin {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 9999px;
+}
+
+/* iOS & Mobile Safe Area Inset Support */
+.safe-area-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0.75rem);
+}
+.safe-area-top {
+  padding-top: env(safe-area-inset-top, 0rem);
 }
