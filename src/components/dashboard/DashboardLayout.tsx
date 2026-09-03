@@ -215,7 +215,9 @@ export default function DashboardLayout() {
                 <div className="text-xs font-bold text-slate-900 leading-tight group-hover:text-green-700 transition-colors">
                   {user?.name}
                 </div>
-                <div className="text-[10px] text-green-600 font-medium">Verified Client</div>
+                <div className={`text-[10px] font-medium ${isProfileComplete ? 'text-green-600' : 'text-amber-600'}`}>
+                  {isProfileComplete ? 'Verified Client' : 'Setup in Progress'}
+                </div>
               </div>
             </Link>
           </div>
@@ -229,8 +231,8 @@ export default function DashboardLayout() {
           </div>
         )}
 
-        {/* Onboarding Notice Banner for Incomplete Profiles */}
-        {!isProfileComplete && (
+        {/* Onboarding Notice Banner for Incomplete Profiles (Hidden when already on Profile page) */}
+        {!isProfileComplete && location.pathname !== '/dashboard/profile' && (
           <div className="bg-amber-50 border-b border-amber-200 px-4 sm:px-8 py-3 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 shadow-xs">
             <div className="flex items-center gap-2.5 text-xs sm:text-sm text-amber-950">
               <span className="flex h-2.5 w-2.5 relative shrink-0">
@@ -242,9 +244,12 @@ export default function DashboardLayout() {
                 Please complete and save your biometric details below to calculate your daily caloric targets and unlock all NutriCraft features.
               </span>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full bg-amber-200/80 text-amber-900 font-extrabold text-[10px] border border-amber-300 uppercase tracking-wider shrink-0">
-              Step 1 Required
-            </span>
+            <Link
+              to="/dashboard/profile"
+              className="px-3 py-1 rounded-full bg-amber-200/90 hover:bg-amber-300 text-amber-950 font-bold text-xs border border-amber-300 uppercase tracking-wider shrink-0 transition-colors"
+            >
+              Step 1: Set Up Profile →
+            </Link>
           </div>
         )}
 
